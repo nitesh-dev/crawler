@@ -2,7 +2,7 @@ import * as url from "url";
 
 import { JSDOM } from "jsdom";
 
-import { fetchHtml } from "./utils.js";
+import { fetchHtml, sleep } from "./utils.js";
 import Logger from "./logger.js";
 
 interface UrlStatus {
@@ -26,6 +26,10 @@ export class Scraper {
   private completedStack: UrlStatus[] = [];
   private isRunning = false;
   private isCompleted = false;
+  private startedAt = 0;
+  private maxTime = 1000 * 60; // 1 min
+
+  private forceStop = false;
 
   constructor(url: string) {
     this.startUrl = url;
@@ -33,9 +37,18 @@ export class Scraper {
     this.pendingStack.push(this.homeUrl);
   }
 
-  update() {
-    console.log("update");
-    this.startScrapping();
+  private crawlerState = new Map<string, boolean>();
+
+  public async start() {
+    this.startedAt = new Date().getTime();
+
+    const promises = [];
+    for (let i = 0; i < this.parallelCount; i++) {
+      promises.push(this.startScrapping("id: " + i));
+    }
+    // Wait for all promises to resolve
+    await Promise.all(promises);
+    console.log("All promises resolved: count: " + this.completedStack.length);
   }
 
   onCompleted() {
@@ -44,22 +57,48 @@ export class Scraper {
     // TODO call the callback if possible
   }
 
-  private async startScrapping() {
-    if (this.isRunning || this.isCompleted) return;
-    if (this.pendingStack.length == 0) {
-      logger.info(
-        "Scrapping completed: " +
-          this.completedStack.length +
-          " urls completed."
-      );
+  private async startScrapping(id: string) {
+    // register the crawler
+    this.crawlerState.set(id, true);
 
-      console.log(this.completedStack)
-      this.onCompleted();
+    logger.info(`Scrapping started: ${id}`);
+    while (this.isCrawlerBusy()) {
+      if (this.forceStop) return;
+      this.validateTimeOver();
+
+      console.log("sleep: " + id);
+      await sleep(1000);
+      await this.crawl(id);
+    }
+  }
+
+  private isCrawlerBusy() {
+    for (let [key, busy] of this.crawlerState) {
+      if (busy) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+
+  private validateTimeOver() {
+    const currentTime = new Date().getTime();
+    const diff = currentTime - this.startedAt;
+    if(diff > this.maxTime){
+        logger.warn("Max time reached");
+        this.forceStop = true;
+    }
+  }
+
+  private async crawl(id: string) {
+    let url = this.pendingStack.shift() as string;
+    if (url) {
+      this.crawlerState.set(id, true);
+    } else {
+      this.crawlerState.set(id, false);
       return;
     }
-
-    this.isRunning = true;
-    let url = this.pendingStack.shift() as string;
 
     const stack: UrlStatus = { success: false, url: url, text: "" };
 
@@ -75,11 +114,12 @@ export class Scraper {
         stack.text = data.content;
       }
 
-      console.log(data);
+      logger.info(`Scrapped by: ${id}`);
+
+      // console.log(data);
     }
 
     this.completedStack.push(stack);
-    this.isRunning = false;
   }
 
   private addUrlsToPendingStack(urls: string[]) {
@@ -90,9 +130,8 @@ export class Scraper {
         this.pendingStack.push(url);
 
         logger.info(`Url added to stack: ${url}`);
-      }
-      {
-        logger.error(`Url already in stack: ${url}`);
+      } else {
+        // logger.error(`Url already in stack: ${url}`);
       }
     });
   }
