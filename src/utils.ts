@@ -15,11 +15,6 @@ export async function fetchHtml(url: string) {
   // console.log(url)
 
   try {
-    if (!(await isHTML(url))) {
-      console.error("Not a HTML page:", url);
-      return { isSuccess: false };
-    }
-
     const response = await fetch(url, {
       headers: {
         "User-Agent":
@@ -59,4 +54,13 @@ async function isHTML(url: string): Promise<boolean> {
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+export function toTime(ms: number) {
+  const sec = Math.floor(ms / 1000);
+  const minutes = Math.floor(sec / 60);
+  const seconds = sec % 60;
+
+  return `${minutes}m : ${seconds}s`;
 }

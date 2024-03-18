@@ -1,8 +1,8 @@
 import * as url from "url";
-
 import { JSDOM } from "jsdom";
+import fs from "fs";
 
-import { fetchHtml, sleep } from "./utils.js";
+import { fetchHtml, sleep, toTime } from "./utils.js";
 import Logger from "./logger.js";
 
 interface UrlStatus {
@@ -21,13 +21,11 @@ const logger = new Logger("Scraper");
 export class Scraper {
   startUrl = "";
   homeUrl = "";
-  private parallelCount = 10;
+  private parallelCount = 5;
   private pendingStack: string[] = [];
   private completedStack: UrlStatus[] = [];
-  private isRunning = false;
-  private isCompleted = false;
   private startedAt = 0;
-  private maxTime = 1000 * 60; // 1 min
+  private maxTime = 1000 * 30; // 30 sec
 
   private forceStop = false;
 
@@ -48,14 +46,15 @@ export class Scraper {
     }
     // Wait for all promises to resolve
     await Promise.all(promises);
-    console.log("All promises resolved: count: " + this.completedStack.length);
+
+    console.log("page count: " + this.completedStack.length);
+    // console.log(this.completedStack);
+    fs.writeFileSync("output.json", JSON.stringify(this.completedStack));
+    console.log("timeTaken: " + toTime(new Date().getTime() - this.startedAt));
+
+    return this.completedStack;
   }
 
-  onCompleted() {
-    this.isCompleted = true;
-
-    // TODO call the callback if possible
-  }
 
   private async startScrapping(id: string) {
     // register the crawler
@@ -66,8 +65,7 @@ export class Scraper {
       if (this.forceStop) return;
       this.validateTimeOver();
 
-      console.log("sleep: " + id);
-      await sleep(1000);
+      await sleep(300);
       await this.crawl(id);
     }
   }
@@ -81,15 +79,16 @@ export class Scraper {
     return false;
   }
 
-
   private validateTimeOver() {
     const currentTime = new Date().getTime();
     const diff = currentTime - this.startedAt;
-    if(diff > this.maxTime){
-        logger.warn("Max time reached");
-        this.forceStop = true;
+    if (diff > this.maxTime) {
+      logger.warn("Max time reached");
+      this.forceStop = true;
     }
   }
+
+
 
   private async crawl(id: string) {
     let url = this.pendingStack.shift() as string;
@@ -119,13 +118,17 @@ export class Scraper {
       // console.log(data);
     }
 
-    this.completedStack.push(stack);
+
+    // add to completed stack - filter the duplicate
+    if(this.completedStack.findIndex((r) => r.url == stack.url) == -1) {
+      this.completedStack.push(stack);
+    }
   }
 
   private addUrlsToPendingStack(urls: string[]) {
     urls.forEach((rUrl) => {
-      //   const url = this.getCleanUrl(rUrl);
-      const url = rUrl;
+      const url = this.getCleanUrl(rUrl);
+      // const url = rUrl;
       if (!this.isUrlInStack(url)) {
         this.pendingStack.push(url);
 
@@ -148,7 +151,9 @@ export class Scraper {
 
   private getCleanUrl(rUrl: string) {
     const url = new URL(rUrl);
-    return url.origin + url.pathname;
+    let link = url.origin + url.pathname;
+    if(link.endsWith("/")) link = link.slice(0, link.length - 1);
+    return link;
   }
 
   private scrapUrlAndText(htmlContent: string) {
