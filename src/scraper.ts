@@ -14,7 +14,10 @@ interface UrlStatus {
 interface ScrapData {
   urls: string[];
   content: string;
+  length: number;
 }
+
+export interface ResponseData {}
 
 const logger = new Logger("Scraper");
 
@@ -39,7 +42,6 @@ export class Scraper {
 
   public async start() {
     this.startedAt = new Date().getTime();
-
     const promises = [];
     for (let i = 0; i < this.parallelCount; i++) {
       promises.push(this.startScrapping("id: " + i));
@@ -49,12 +51,14 @@ export class Scraper {
 
     console.log("page count: " + this.completedStack.length);
     // console.log(this.completedStack);
-    fs.writeFileSync("output.json", JSON.stringify(this.completedStack));
+    // fs.writeFileSync("output.json", JSON.stringify(this.completedStack));
     console.log("timeTaken: " + toTime(new Date().getTime() - this.startedAt));
 
-    return this.completedStack;
+    return {
+      data: this.completedStack,
+      time: toTime(new Date().getTime() - this.startedAt),
+    };
   }
-
 
   private async startScrapping(id: string) {
     // register the crawler
@@ -88,8 +92,6 @@ export class Scraper {
     }
   }
 
-
-
   private async crawl(id: string) {
     let url = this.pendingStack.shift() as string;
     if (url) {
@@ -118,9 +120,8 @@ export class Scraper {
       // console.log(data);
     }
 
-
     // add to completed stack - filter the duplicate
-    if(this.completedStack.findIndex((r) => r.url == stack.url) == -1) {
+    if (this.completedStack.findIndex((r) => r.url == stack.url) == -1) {
       this.completedStack.push(stack);
     }
   }
@@ -152,7 +153,7 @@ export class Scraper {
   private getCleanUrl(rUrl: string) {
     const url = new URL(rUrl);
     let link = url.origin + url.pathname;
-    if(link.endsWith("/")) link = link.slice(0, link.length - 1);
+    if (link.endsWith("/")) link = link.slice(0, link.length - 1);
     return link;
   }
 
@@ -171,12 +172,13 @@ export class Scraper {
 
       let text = this.extractTextContent(document.body);
 
-      text = text.replace(/\s+/g, " "); // remove extra spaces
+      text = text.replace(/\s+/g, " ").trim(); // remove extra spaces
       text = text.replace(/[\r\n]+/g, ""); // remove line breaks
 
       const data: ScrapData = {
         urls: [...links.values()],
         content: text,
+        length: text.length,
       };
 
       return data;
